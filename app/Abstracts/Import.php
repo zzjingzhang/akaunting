@@ -3,7 +3,6 @@
 namespace App\Abstracts;
 
 use App\Abstracts\Http\FormRequest;
-use App\Events\Import\RowPreparing;
 use App\Traits\Import as ImportHelper;
 use App\Traits\Sources;
 use App\Utilities\Date;
@@ -81,11 +80,7 @@ abstract class Import implements HasLocalePreference, ShouldQueue, SkipsEmptyRow
             }
         }
 
-        $event = new RowPreparing($this, $row);
-
-        event($event);
-
-        return $event->row;
+        return $row;
     }
 
     public function rules(): array
