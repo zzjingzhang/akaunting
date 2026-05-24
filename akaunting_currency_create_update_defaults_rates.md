@@ -91,13 +91,13 @@ if ($this->request->has('enabled') && !$this->request->get('enabled')) {
 | `invoices` | 发票 |
 | `bills` | 账单 |
 | `transactions` | 交易记录 |
-| `default_currency` | 当前是默认货币 |
+| `default_currency` | 当前是默认货币（通过 `$this->model->code == default_currency()` 判断） |
 
 ---
 
-## 3. scopeCode 与业务链路使用
+## 3. Currency Model 方法与业务链路
 
-### 3.1 scopeCode 定义
+### 3.1 scopeCode 定义与使用
 
 [Currency.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Setting/Currency.php#L122-L125)
 
@@ -108,38 +108,55 @@ public function scopeCode($query, $code)
 }
 ```
 
-### 3.2 业务链路中的使用
+**业务链路使用：**
 
-**在 SettingController 中设置默认货币：**
+- [SettingController](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Abstracts/Http/SettingController.php#L116)：通过 `Currency::code($value)->first()` 获取待设为默认的货币实例
 
-[SettingController.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Abstracts/Http/SettingController.php#L109-L119)
+### 3.2 enabled() Scope（继承自 Abstract Model）
+
+[Model.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Abstracts/Model.php#L181-L184)
 
 ```php
-if ($real_key == 'default.currency') {
-    $currencies = Currency::enabled()->pluck('code')->toArray();
-
-    if (!in_array($value, $currencies)) {
-        continue;
-    }
-
-    $currency = Currency::code($value)->first();
-    $currency->rate = '1';
-    $currency->save();
+public function scopeEnabled($query)
+{
+    return $query->where($this->qualifyColumn('enabled'), 1);
 }
 ```
 
-### 3.3 Model 关联关系
+**业务链路使用：**
 
-Currency 通过 `code` 字段与多个业务模型关联：
+| 位置 | 代码 | 作用 |
+|------|------|------|
+| [Form/Group/Currency.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/View/Components/Form/Group/Currency.php#L36) | `Model::enabled()->orderBy('name')->pluck('name', 'code')` | UI 货币下拉选项只展示启用的货币 |
+| [Form/Group/Account.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/View/Components/Form/Group/Account.php#L71) | `Model::with('currency')->enabled()->orderBy('name')->get()` | UI 账户下拉只展示启用的账户 |
+| [SettingController](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Abstracts/Http/SettingController.php#L110) | `Currency::enabled()->pluck('code')->toArray()` | 检查待设为默认的货币是否在启用列表中 |
 
-| 模型 | 关联方法 | 外键 |
-|------|----------|------|
-| [Account](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Account.php#L49-L52) | `currency()` | `currency_code` |
-| [Transaction](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Transaction.php#L131-L134) | `currency()` | `currency_code` |
-| [Document](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Document/Document.php#L128-L131) | `currency()` | `currency_code` |
-| [Contact](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Common/Contact.php#L138-L141) | `currency()` | `currency_code` |
+### 3.3 default() 方法
 
-### 3.4 Helper 函数
+[Currency.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Setting/Currency.php#L110-L113)
+
+```php
+public function default()
+{
+    return $this->code(default_currency())->first();
+}
+```
+
+- 返回默认货币的模型实例
+- 内部调用 `scopeCode`，无需传入参数即可使用：`Currency::default()`
+
+### 3.4 Model 关联关系
+
+Currency 通过 `code` 字段与多个业务模型建立 `hasMany`/`belongsTo` 关联：
+
+| 模型 | 关联方法 | 外键 | 方向 |
+|------|----------|------|------|
+| [Account](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Account.php#L49-L52) | `currency()` | `currency_code` | belongsTo |
+| [Transaction](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Transaction.php#L131-L134) | `currency()` | `currency_code` | belongsTo |
+| [Document](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Document/Document.php#L128-L131) | `currency()` | `currency_code` | belongsTo |
+| [Contact](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Common/Contact.php#L138-L141) | `currency()` | `currency_code` | belongsTo |
+
+### 3.5 Helper 函数
 
 [helpers.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Utilities/helpers.php#L247-L255)
 
@@ -150,19 +167,29 @@ function default_currency(): string
 }
 ```
 
+- 返回默认货币代码字符串（如 `'USD'`），而非模型实例
+- 在 `Currencies` trait 的 `convertBetween` 中被广泛使用
+
 ---
 
 ## 4. rate 为 0 或禁用货币的潜在影响
 
-### 4.1 Request 层防护
+### 4.1 可达性分析（rate = 0 如何进入系统）
 
-Request 中 `rate` 规则为 `gt:0`，**正常流程下 rate 不可能为 0**。
-
-但如果绕过校验（如直接操作数据库、API 调用跳过 Request），可能引发以下问题。
+| 路径 | 是否可达 | 防护机制 |
+|------|----------|----------|
+| **Web/API (Currency CRUD)** | 不可达 | [Currency Request](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Http/Requests/Setting/Currency.php#L29): `rate: required|gt:0` |
+| **Web/API (Transaction 直接创建)** | 不可达 | [Transaction Request](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Http/Requests/Banking/Transaction.php#L47): `currency_rate: required|gt:0` |
+| **Web/API (Transfer 创建)** | **可达（间接）** | [Transfer Request](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Http/Requests/Banking/Transfer.php#L14-L23) 不校验 `from_account_rate`/`to_account_rate`；若数据库中货币 rate=0，则 `getCurrencyRate()` fallback 返回 0 |
+| **直接 dispatch Job** | 可达 | 绕过 Request 校验，直接传入任意 rate 值 |
+| **事件监听器** | 核心代码不可达 | 核心代码中 `CurrencyCreated`/`CurrencyUpdated` 无注册监听器，无法修改 rate；但扩展模块可自行添加 |
+| **直接数据库写入** | 可达 | `UPDATE currencies SET rate = 0` 绕过所有应用层校验 |
 
 ### 4.2 对 CreateTransfer 的影响
 
-[CreateTransfer.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Jobs/Banking/CreateTransfer.php#L124-L133)
+[CreateTransfer.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Jobs/Banking/CreateTransfer.php#L23-L100)
+
+**汇率获取逻辑：**
 
 ```php
 protected function getCurrencyRate($type)
@@ -177,32 +204,52 @@ protected function getCurrencyRate($type)
 }
 ```
 
-**风险点：**
+- `from_account_rate`/`to_account_rate` 为可选参数
+- 若 Request 中未提供，则从 `currencies` 表读取当前 rate
+- Transfer Request **不校验** 这两个字段的有效性
 
-1. 转换时使用 `convertBetween` 进行汇率换算
-2. [Currencies.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Traits/Currencies.php#L43-L54) 中 `convertToDefault` 使用 `divide` 操作
+**expense 交易与 income 交易的差异：**
+
+| 交易 | amount 来源 | rate=0 影响 |
+|------|-------------|--------------|
+| **expense_transaction**（转出） | `$this->request->get('amount')`（原始金额） | **不受影响**，amount 保持原始值，仅 `currency_rate` 字段存为 0 |
+| **income_transaction**（转入） | 当 `expense_currency_code != income_currency_code` 时，amount = `convertBetween(...)` 结果 | **受影响**，`convertBetween` 返回 0，导致转入金额为 0 |
+
+**convertBetween 在 rate=0 时的行为：**
+
+[Currencies.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Traits/Currencies.php#L43-L54)
 
 ```php
-public function convert($method, $amount, $from, $to, $rate, $format = false)
+public function convertBetween($amount, $from_code, $from_rate, $to_code, $to_rate)
 {
-    // ...
-    try {
-        $money = $money->$method((double) $rate);
-    } catch (\Throwable $e) {
-        report($e);
-        return 0;
+    $default_amount = $amount;
+
+    if ($from_code != default_currency()) {
+        $default_amount = $this->convertToDefault($amount, $from_code, $from_rate);
+        // convert('divide', amount, from, default, rate=0) → catch → return 0
     }
+
+    $converted_amount = $this->convertFromDefault($default_amount, $to_code, $to_rate);
+    // convert('multiply', 0, default, to, rate) → return 0
+
+    return $converted_amount;
 }
 ```
 
-**rate = 0 后果：**
-- `divide(0)` 会抛出异常，被捕获后返回 `0`
-- 转出金额变为 0，导致对账不一致
-- 异常被 `report($e)` 记录但不中断流程
+- `from_rate=0`：`convertToDefault` 中 `divide(amount, 0)` 抛异常 → 捕获返回 0 → 最终结果为 0
+- `to_rate=0` 且 `from_rate≠0`：`convertToDefault` 成功 → `convertFromDefault` 中 `multiply(default_amount, 0)` = 0 → 最终结果为 0
+- `from_rate=0` 且 `from_code == default_currency()`：跳过 `convertToDefault` → `convertFromDefault` 中 `multiply(amount, 0)` = 0
+
+**rate=0 后果：**
+- 转出方账户余额扣减正确（原始金额），但转入方入账为 0
+- 造成账不平，两个账户余额不匹配
+- `convert` 中异常被 `report($e)` 记录但不中断流程
 
 ### 4.3 对 CreateBankingDocumentTransaction 的影响
 
-[CreateBankingDocumentTransaction.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Jobs/Banking/CreateBankingDocumentTransaction.php#L65)
+[CreateBankingDocumentTransaction.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Jobs/Banking/CreateBankingDocumentTransaction.php#L51-L123)
+
+**汇率获取逻辑：**
 
 ```php
 $this->request['currency_rate'] = isset($this->request['currency_rate']) 
@@ -210,18 +257,45 @@ $this->request['currency_rate'] = isset($this->request['currency_rate'])
     : currency($currency_code)->getRate();
 ```
 
-**风险点：**
+- 优先使用 Request 传入值，fallback 到 `currencies` 表
+- 直接 dispatch Job 时可传入任意值
 
-1. 从货币表获取汇率存入交易记录
-2. [checkAmount()](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Jobs/Banking/CreateBankingDocumentTransaction.php#L74-L123) 中使用 `convertBetween` 比较支付金额
-3. rate = 0 会导致转换金额异常，可能触发 `over_payment` 错误或金额计算错误
+**checkAmount() 中 rate=0 的真实分支：**
 
-### 4.4 禁用货币的影响
+```php
+$amount = $this->request['amount'] = round($this->request['amount'], $transaction_precision);
 
-1. **创建/更新时保护**：存在关联记录的货币无法禁用
-2. **已禁用货币**：`Currency::enabled()` scope 会过滤掉，但历史数据仍通过 `code` 关联
-3. **新建交易**：禁用货币不会出现在下拉选项中，但 API 直接调用可能绕过
-4. **报表统计**：货币禁用不影响已存交易的金额计算（交易记录中保存了当时的 `currency_rate`）
+if ($this->model->currency_code != $code) {
+    $converted_amount = $this->convertBetween($amount, $code, $rate, $this->model->currency_code, $this->model->currency_rate);
+    $amount = round($converted_amount, $document_precision);
+    // rate=0 → $converted_amount=0 → $amount=0
+}
+
+$total_amount = round($this->model->amount - $this->model->paid_amount, $document_precision);
+$compare = bccomp($amount, $total_amount, $document_precision);
+```
+
+| 场景 | $amount | $total_amount | bccomp 结果 | 状态 |
+|------|---------|---------------|-------------|------|
+| 货币不同 + rate=0 | 0 | 通常 > 0 | -1 | `partial` |
+| 货币不同 + rate=0 | 0 | 0 | 0 | `paid` |
+| 货币相同 + rate=0 | 原始金额 | model.amount - paid | 取决于原始金额 | 正常逻辑 |
+
+**关键发现：货币不同且 rate=0 时，`$amount` 始终为 0，导致 `bccomp(0, total_amount) = -1`，状态强制为 `partial`。此场景下**永远不会触发 `over_payment` 异常**，即使原始支付金额远超应付金额。**
+
+### 4.4 禁用货币的多层检查差异
+
+| 层级 | 检查位置 | 检查逻辑 | 效果 |
+|------|----------|----------|------|
+| **UI - 货币下拉** | [Form/Group/Currency.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/View/Components/Form/Group/Currency.php#L36) | `Model::enabled()->pluck('name', 'code')` | 禁用货币不显示在下拉中，但已选择的禁用货币通过 `old()` 保留 |
+| **UI - 账户下拉** | [Form/Group/Account.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/View/Components/Form/Group/Account.php#L71) | `Model::with('currency')->enabled()->orderBy('name')->get()` | 只过滤禁用的账户，不过滤账户关联的禁用货币 |
+| **Job - UpdateCurrency** | [UpdateCurrency.php authorize()](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Jobs/Setting/UpdateCurrency.php#L42-L58) | 关联记录存在时禁止禁用 | 有关联（账户/客户/发票/账单/交易）的货币无法禁用；无关联时可禁用 |
+| **Setting - 设为默认** | [SettingController](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Abstracts/Http/SettingController.php#L110-L111) | `in_array($value, Currency::enabled()->pluck('code'))` | 禁用货币不能被设为默认 |
+
+**潜在风险：**
+- 已禁用货币仍可能通过已关联的启用账户被间接使用（因为账户下拉不检查货币状态）
+- 直接 dispatch Job 或 API 调用可绕过 UI 层过滤
+- 历史交易/单据的 `currency_code` 仍指向已禁用货币，不影响金额计算（因为快照中保存了 `currency_rate`）
 
 ---
 
@@ -229,14 +303,28 @@ $this->request['currency_rate'] = isset($this->request['currency_rate'])
 
 ### 5.1 核心设计原理
 
-**快照机制**：[Document](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Document/Document.php#L45) 和 [Transaction](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Transaction.php#L46) 模型均有 `currency_rate` 字段，**创建时保存当时的汇率快照**。
+**快照机制**：[Document](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Document/Document.php#L45) 和 [Transaction](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Transaction.php#L46) 模型均有 `currency_rate` 字段，**创建时保存当时的汇率快照**。后续读取时，`paid` 属性和金额转换均使用保存的快照值，而非重新查询 `currencies` 表。
 
-### 5.2 验证方案
+### 5.2 核心默认代码与扩展监听器的分离分析
 
-**步骤 1：准备测试数据**
+**核心默认代码（不会触发重算）：**
+
+- `EventServiceProvider` 中未注册 `CurrencyCreated`/`CurrencyUpdated` 的监听器
+- `app/Listeners/` 目录下无监听这两个事件的类
+- `Currency::update()` 仅更新 `currencies` 表的 `rate` 字段，不触发级联更新
+- 搜索结果：仅在 [CreateCurrency](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Jobs/Setting/CreateCurrency.php#L17) 和 [UpdateCurrency](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Jobs/Setting/UpdateCurrency.php#L17) Job 中 fire 事件，无对应 listener
+
+**扩展监听器（可能触发重算）：**
+
+- 第三方模块可通过自身 ServiceProvider 注册 `CurrencyUpdated` 事件监听器
+- 监听器中可执行批量更新 `documents.currency_rate` 或 `transactions.currency_rate`
+- 核心代码不提供此类监听器，需自行评估模块代码
+
+### 5.3 验证方案（基于 currency_rate 快照断言）
+
+**步骤 1：创建货币与发票**
 
 ```php
-// 1. 创建货币 USD，rate = 7.0
 $usd = Currency::create([
     'company_id' => 1,
     'name' => 'US Dollar',
@@ -245,77 +333,68 @@ $usd = Currency::create([
     'enabled' => 1,
 ]);
 
-// 2. 创建一笔 USD 发票（金额 100）
 $invoice = Document::create([
-    'type' => 'invoice',
+    'type' => Document::INVOICE_TYPE,
     'currency_code' => 'USD',
-    'currency_rate' => 7.0,  // 快照保存
+    'currency_rate' => 7.0,
     'amount' => 100,
     // ...
 ]);
-
-// 记录当时的默认货币等值: 100 * 7.0 = 700
 ```
 
-**步骤 2：更新汇率**
+**步骤 2：更新货币汇率**
 
 ```php
-// 更新 USD 汇率为 7.2
 $usd->update(['rate' => 7.2]);
 ```
 
-**步骤 3：验证旧数据不变**
+**步骤 3：验证旧发票快照不变**
 
 ```php
-$invoice = Document::find($invoice->id);
+$invoice->refresh();
 
-// 断言: 发票保存的汇率快照不变
+// 关键断言：发票的 currency_rate 快照不受货币汇率更新影响
 $this->assertEquals(7.0, $invoice->currency_rate);
-
-// 断言: 发票金额不变
 $this->assertEquals(100, $invoice->amount);
-
-// 断言: paid 计算使用保存的汇率
-$paid = $invoice->paid; // 内部使用 $this->currency_rate 转换
 ```
 
-**步骤 4：验证新数据使用新汇率**
+**步骤 4：验证 paid 使用快照汇率**
+
+[Document.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Document/Document.php#L385-L386)
 
 ```php
-// 创建新发票
-$newInvoice = Document::create([
-    'type' => 'invoice',
-    'currency_code' => 'USD',
-    'currency_rate' => 7.2,  // 新汇率
-    'amount' => 100,
-]);
-
-$this->assertEquals(7.2, $newInvoice->currency_rate);
+// $code 和 $rate 均来自 $this（Document 实例自身），而非 currency() 辅助函数
+$code = $this->currency_code;
+$rate = $this->currency_rate;  // 使用保存的快照
 ```
 
-### 5.3 关键验证点
+**步骤 5：验证交易使用快照汇率**
+
+[Transaction.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Transaction.php#L359-L380)
+
+```php
+// getAmountForDocumentAttribute 使用 $this->document->currency_rate
+$to_rate = $this->document->currency_rate;  // 而非 currency($code)->getRate()
+// convertBetween 使用 $this->currency_rate 和 $this->document->currency_rate
+```
+
+### 5.4 关键验证点
 
 | 验证场景 | 预期结果 | 代码位置 |
 |----------|----------|----------|
-| 发票 `paid` 属性计算 | 使用 `$this->currency_rate` 而非 `currency($code)->getRate()` | [Document.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Document/Document.php#L385-L403) |
-| 交易金额转换 | 使用 `$this->currency_rate` | [Transaction.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Transaction.php#L354-L380) |
-| 报表统计 | 不重新计算历史数据 | 需检查报表相关代码 |
-
-### 5.4 反模式验证（确认不触发重算）
-
-验证 `CurrencyUpdated` 事件没有监听器触发批量更新：
-
-```php
-// 搜索监听 CurrencyUpdated 的 Listener
-// 结果: 无默认监听器，证明汇率更新不会触发交易重算
-```
+| `documents.currency_rate` 字段值 | 保持创建时的值（快照不变） | [Document.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Document/Document.php#L385-L403) |
+| `transactions.currency_rate` 字段值 | 保持创建时的值（快照不变） | [Transaction.php](file:///Users/zhangjing/Desktop/so-coders/so-coder-projects/0508/under/akaunting/app/Models/Banking/Transaction.php#L354-L380) |
+| `Document::paid` 计算 | 使用 `$this->currency_rate` 快照 | 同上 |
+| `Transaction::getAmountForDocumentAttribute` | 使用 `$this->currency_rate` 和 `$this->document->currency_rate` | 同上 |
+| 核心代码无 CurrencyUpdated 监听器 | `app/Listeners/` 和 `EventServiceProvider` 中无注册 | 通过代码搜索确认 |
 
 ---
 
 ## 总结
 
-1. **校验严格**：Request 层确保 `rate > 0`，Update 时保护有关联的货币不被禁用或改 code
-2. **默认货币特殊处理**：设为默认时强制 `rate = 1`，并更新 `setting('default.currency')`
-3. **快照设计**：交易/单据创建时保存 `currency_rate` 快照，后续汇率更新不影响历史数据
-4. **转换逻辑**：`convertBetween` 通过默认货币作为中间货币进行双向转换
-5. **潜在风险**：绕过 Request 校验导致 rate = 0 会引发除零异常，虽被捕获但返回 0 可能导致数据不一致
+1. **校验严格**：Currency Request 确保 `rate > 0`；Transaction Request 确保 `currency_rate > 0`；Transfer Request 不校验汇率字段，但 CreateTransfer 可通过 fallback 从货币表获取
+2. **默认货币特殊处理**：设为默认时强制 `rate = 1`，并更新 `setting('default.currency')`；SettingController 确保默认货币在启用列表中
+3. **快照设计**：交易/单据创建时保存 `currency_rate` 快照，后续汇率更新不影响历史数据；`paid` 计算和金额转换均使用快照值
+4. **转换逻辑**：`convertBetween` 通过默认货币作为中间货币进行双向转换；rate=0 时除零异常被捕获返回 0，在 CreateTransfer 中导致 income 交易金额为 0，在 CreateBankingDocumentTransaction 中强制状态为 `partial`
+5. **禁用货币多层防护**：UI 层过滤显示、Job 层阻止有关联记录的禁用、Setting 层阻止设为默认；但账户组件不检查货币状态，存在间接使用禁用货币的可能
+6. **扩展监听器风险**：核心代码不监听 CurrencyUpdated 进行级联更新，但第三方模块可能添加此类监听器
